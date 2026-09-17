@@ -1,0 +1,127 @@
+{
+  "format": "canvas-flutter",
+  "version": 1,
+  "screens": [
+    {
+      "id": "1789628537930579",
+      "type": "Column",
+      "name": "Settings",
+      "props": {
+        "padding": 24,
+        "gap": 18
+      },
+      "children": [
+        {
+          "id": "1789628537930070",
+          "type": "Text",
+          "name": "Text",
+          "props": {
+            "text": "Your workspace",
+            "fontSize": 28,
+            "color": "@ink"
+          },
+          "children": []
+        },
+        {
+          "id": "1789628537930071",
+          "type": "Text",
+          "name": "Text",
+          "props": {
+            "text": "Make it feel like you.",
+            "fontSize": 16,
+            "color": "@ink"
+          },
+          "children": []
+        },
+        {
+          "id": "1789628537930577",
+          "type": "Container",
+          "name": "Container",
+          "props": {
+            "padding": 16,
+            "radius": 16,
+            "background": "@surface",
+            "gap": 12
+          },
+          "children": [
+            {
+              "id": "1789628537930072",
+              "type": "Text",
+              "name": "Text",
+              "props": {
+                "text": "Display name"
+              },
+              "children": []
+            },
+            {
+              "id": "1789628537930073",
+              "type": "Input",
+              "name": "Input",
+              "props": {
+                "text": "Enter a name",
+                "event": "displayNameChanged"
+              },
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "1789628537932085",
+          "type": "Instance",
+          "name": "Instance",
+          "props": {
+            "component": "Primary button",
+            "text": "Save $ 'quoted' \\ name",
+            "event": "savePreferences",
+            "background": "#112233",
+            "radius": 8
+          },
+          "children": []
+        },
+        {
+          "id": "1789628537932088",
+          "type": "Row",
+          "name": "Row",
+          "props": {},
+          "children": [
+            {
+              "id": "1789628537932086",
+              "type": "Text",
+              "name": "Text",
+              "props": {
+                "text": "Ready"
+              },
+              "children": []
+            },
+            {
+              "id": "1789628537932087",
+              "type": "Spacer",
+              "name": "Spacer",
+              "props": {},
+              "children": []
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "components": {
+    "Primary button": {
+      "id": "1789628537932084",
+      "type": "Button",
+      "name": "Primary button",
+      "props": {
+        "text": "Save preferences",
+        "background": "@accent",
+        "color": "#FFFFFF",
+        "event": "savePreferences"
+      },
+      "children": []
+    }
+  },
+  "tokens": {
+    "accent": "#6750A4",
+    "ink": "#20212A",
+    "surface": "#F2F0F7"
+  }
+}

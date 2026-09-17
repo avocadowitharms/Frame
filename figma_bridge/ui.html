@@ -1,0 +1,15 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+body{font:14px system-ui;padding:20px;color:#24212b;background:#f5f3fa}button{background:#6750a4;color:white;border:0;border-radius:8px;padding:12px 18px;cursor:pointer}p{line-height:1.5}#status{font-size:12px}
+</style></head><body><h2>Frame Bridge</h2><p>Select your frames, then export a local package. Auto Layout produces the best editable result.</p><button id="export">Export selection</button><p id="status">No network access. No project account.</p><script>
+document.getElementById('export').onclick = () => parent.postMessage({pluginMessage:{type:'export'}}, '*');
+window.onmessage = event => {
+  const message = event.data.pluginMessage; if (!message) return;
+  const status = document.getElementById('status');
+  if (message.error) { status.textContent = message.error; return; }
+  if (typeof message.data !== 'string') return;
+  const url = URL.createObjectURL(new Blob([message.data],{type:'application/json'}));
+  const link = document.createElement('a'); link.href = url; link.download = 'figma.canvas-package.json'; link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  status.textContent = 'Package exported. In Frame choose Figma import.';
+};
+</script></body></html>
