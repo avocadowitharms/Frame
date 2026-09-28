@@ -3,7 +3,7 @@
   "version": 1,
   "screens": [
     {
-      "id": "1789628537930579",
+      "id": "1789633116513806",
       "type": "Column",
       "name": "Settings",
       "props": {
@@ -12,7 +12,7 @@
       },
       "children": [
         {
-          "id": "1789628537930070",
+          "id": "1789633116513800",
           "type": "Text",
           "name": "Text",
           "props": {
@@ -23,7 +23,7 @@
           "children": []
         },
         {
-          "id": "1789628537930071",
+          "id": "1789633116513801",
           "type": "Text",
           "name": "Text",
           "props": {
@@ -34,7 +34,7 @@
           "children": []
         },
         {
-          "id": "1789628537930577",
+          "id": "1789633116513804",
           "type": "Container",
           "name": "Container",
           "props": {
@@ -45,7 +45,7 @@
           },
           "children": [
             {
-              "id": "1789628537930072",
+              "id": "1789633116513802",
               "type": "Text",
               "name": "Text",
               "props": {
@@ -54,7 +54,7 @@
               "children": []
             },
             {
-              "id": "1789628537930073",
+              "id": "1789633116513803",
               "type": "Input",
               "name": "Input",
               "props": {
@@ -66,7 +66,7 @@
           ]
         },
         {
-          "id": "1789628537932085",
+          "id": "1789633116515528",
           "type": "Instance",
           "name": "Instance",
           "props": {
@@ -79,13 +79,13 @@
           "children": []
         },
         {
-          "id": "1789628537932088",
+          "id": "1789633116515531",
           "type": "Row",
           "name": "Row",
           "props": {},
           "children": [
             {
-              "id": "1789628537932086",
+              "id": "1789633116515529",
               "type": "Text",
               "name": "Text",
               "props": {
@@ -94,10 +94,91 @@
               "children": []
             },
             {
-              "id": "1789628537932087",
+              "id": "1789633116515530",
               "type": "Spacer",
               "name": "Spacer",
               "props": {},
+              "children": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "1789633116523807",
+      "type": "Stack",
+      "name": "Fidelity",
+      "props": {
+        "sourceId": "root",
+        "left": 0,
+        "top": 0,
+        "width": 120,
+        "height": 120,
+        "background": "#ffffffff",
+        "radius": 12,
+        "clip": true
+      },
+      "children": [
+        {
+          "id": "1789633116523803",
+          "type": "Artwork",
+          "name": "Circle",
+          "props": {
+            "sourceId": "art",
+            "left": 30,
+            "top": 25,
+            "width": 20,
+            "height": 20,
+            "png": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aL1EAAAAASUVORK5CYII=",
+            "event": "artTapped"
+          },
+          "children": []
+        },
+        {
+          "id": "1789633116523804",
+          "type": "Text",
+          "name": "Label",
+          "props": {
+            "sourceId": "text",
+            "left": 20,
+            "top": 70,
+            "width": 60,
+            "height": 20,
+            "text": "Hand drawn label",
+            "fontSize": 16,
+            "fontFamily": "Hand Drawn",
+            "fontWeight": 400,
+            "textAlign": "left",
+            "color": "#20212A",
+            "png": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aL1EAAAAASUVORK5CYII="
+          },
+          "children": []
+        },
+        {
+          "id": "1789633116523806",
+          "type": "Stack",
+          "name": "Transparent group",
+          "props": {
+            "sourceId": "group",
+            "left": 5,
+            "top": 5,
+            "width": 20,
+            "height": 20,
+            "clip": false
+          },
+          "children": [
+            {
+              "id": "1789633116523805",
+              "type": "Artwork",
+              "name": "Circle",
+              "props": {
+                "sourceId": "nested",
+                "left": 3,
+                "top": 5,
+                "width": 5,
+                "height": 5,
+                "png": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aL1EAAAAASUVORK5CYII="
+              },
               "children": []
             }
           ]
@@ -107,7 +188,7 @@
   ],
   "components": {
     "Primary button": {
-      "id": "1789628537932084",
+      "id": "1789633116515527",
       "type": "Button",
       "name": "Primary button",
       "props": {

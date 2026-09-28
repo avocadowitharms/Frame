@@ -1,4 +1,38 @@
 import 'dart:convert';
+import 'dart:typed_data';
+
+const maxDocumentBytes = 32000000;
+String argbHex(String hex) =>
+    hex.length == 7 ? 'FF${hex.substring(1)}' : hex.substring(1);
+bool validColor(String hex) =>
+    RegExp(r'^#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$').hasMatch(hex);
+Uint8List pngBytes(String value) {
+  if (value.length > 12000000)
+    throw const FormatException('An image exceeds 12 MB encoded.');
+  final bytes = base64Decode(value);
+  if (bytes.length < 33 ||
+      !const [
+        137,
+        80,
+        78,
+        71,
+        13,
+        10,
+        26,
+        10,
+      ].asMap().entries.every((e) => bytes[e.key] == e.value) ||
+      ascii.decode(bytes.sublist(12, 16), allowInvalid: true) != 'IHDR')
+    throw const FormatException('Expected a PNG image.');
+  final header = ByteData.sublistView(bytes);
+  final width = header.getUint32(16), height = header.getUint32(20);
+  if (width == 0 ||
+      height == 0 ||
+      width > 8192 ||
+      height > 8192 ||
+      width * height > 16000000)
+    throw const FormatException('PNG exceeds the 16 megapixel image limit.');
+  return bytes;
+}
 
 const kinds = [
   'Column',
@@ -8,8 +42,11 @@ const kinds = [
   'Button',
   'Input',
   'Spacer',
+  'Stack',
+  'Artwork',
 ];
-bool isLayout(String type) => ['Column', 'Row', 'Container'].contains(type);
+bool isLayout(String type) =>
+    ['Column', 'Row', 'Container', 'Stack'].contains(type);
 int _lastId = 0;
 String uid() {
   final now = DateTime.now().microsecondsSinceEpoch;
@@ -73,10 +110,44 @@ class DesignNode {
       'fontSize',
       'height',
       'width',
+      'textHeight',
     ]) {
       final v = node.props[key];
       if (v != null && (v is! num || !v.isFinite || v < 0 || v > 10000))
         throw FormatException('Invalid $key');
+    }
+    for (final key in ['left', 'top', 'letterSpacing']) {
+      final v = node.props[key];
+      if (v != null && (v is! num || !v.isFinite || v.abs() > 10000))
+        throw FormatException('Invalid $key');
+    }
+    if (node.props['clip'] != null && node.props['clip'] is! bool)
+      throw const FormatException('Invalid clipping.');
+    if (node.props['textAlign'] != null &&
+        ![
+          'left',
+          'center',
+          'right',
+          'justify',
+        ].contains(node.props['textAlign']))
+      throw const FormatException('Invalid text alignment.');
+    if (node.props['fontWeight'] != null &&
+        ![
+          100,
+          200,
+          300,
+          400,
+          500,
+          600,
+          700,
+          800,
+          900,
+        ].contains(node.props['fontWeight']))
+      throw const FormatException('Invalid font weight.');
+    if (node.props['png'] != null) {
+      if (node.props['png'] is! String)
+        throw const FormatException('Invalid image.');
+      pngBytes(node.props['png']);
     }
     return node;
   }
@@ -155,13 +226,11 @@ class DesignDocument {
   };
   String encode() => const JsonEncoder.withIndent('  ').convert(toJson());
   factory DesignDocument.decode(String source) {
-    if (source.length > 5000000)
-      throw const FormatException('Project is larger than 5 MB.');
+    if (source.length > maxDocumentBytes)
+      throw const FormatException('Project is larger than 32 MB.');
     final j = jsonDecode(source);
     if (j is! Map || j['format'] != 'canvas-flutter' || j['version'] != 1)
-      throw const FormatException(
-        'Expected a Frame version 1 project.',
-      );
+      throw const FormatException('Expected a Frame version 1 project.');
     final d = DesignDocument(
       (j['screens'] as List)
           .map((n) => DesignNode.fromJson(Map<String, dynamic>.from(n)))
@@ -187,12 +256,12 @@ class DesignDocument {
           final v = n.props[key];
           if (v != null &&
               (v is! String ||
-                  !(RegExp(r'^#[0-9a-fA-F]{6}$').hasMatch(v) ||
+                  !(validColor(v) ||
                       v.startsWith('@') &&
                           d.tokens.containsKey(v.substring(1)))))
             throw FormatException('Invalid $key');
         }
-        for (final key in ['text', 'event', 'component']) {
+        for (final key in ['text', 'event', 'component', 'fontFamily']) {
           if (n.props[key] != null && n.props[key] is! String)
             throw FormatException('Invalid $key');
         }
@@ -244,11 +313,20 @@ class DesignDocument {
   DesignNode resolve(DesignNode n) {
     if (n.type != 'Instance') return n;
     final base = components[n.props['component']]!;
+    final props = {...base.props, ...n.props};
+    if (base.type == 'Text' &&
+        [
+          'text',
+          'fontSize',
+          'color',
+          'fontFamily',
+        ].any((key) => n.props.containsKey(key)))
+      props.remove('png');
     return DesignNode(
       base.type,
       id: n.id,
       name: n.name,
-      props: {...base.props, ...n.props},
+      props: props,
       children: base.children,
     );
   }
@@ -262,7 +340,7 @@ class DesignDocument {
       '${className(root.name)}${[...screens, ...components.values].indexOf(root)}';
   String exportDart() {
     final out = StringBuffer(
-      "// Generated by Frame. Keep behavior in separate files.\nimport 'package:flutter/material.dart';\n\n",
+      "// Generated by Frame. Keep behavior in separate files.\nimport 'dart:convert';\nimport 'package:flutter/material.dart';\n\n",
     );
     for (final root in [...screens, ...components.values]) {
       // ponytail: stable numbered classes avoid name collisions; named public APIs can replace this when component parameter schemas expand.
@@ -288,7 +366,7 @@ class DesignDocument {
       }.entries) {
         if (p[entry.key] != null)
           args.add(
-            '${entry.value}: Color(0xFF${hex(p[entry.key], '#FFFFFF').substring(1)})',
+            '${entry.value}: Color(0x${argbHex(hex(p[entry.key], '#FFFFFF'))})',
           );
       }
       for (final key in [
@@ -308,10 +386,10 @@ class DesignDocument {
     String color(dynamic v, String fallback, String parameter) => root
         ? v == null && parameter == 'background'
               ? '(background ?? Colors.transparent)'
-              : '($parameter ?? Color(0xFF${hex(v, fallback).substring(1)}))'
+              : '($parameter ?? Color(0x${argbHex(hex(v, fallback))}))'
         : v == null && parameter == 'background'
         ? 'Colors.transparent'
-        : 'Color(0xFF${hex(v, fallback).substring(1)})';
+        : 'Color(0x${argbHex(hex(v, fallback))})';
     String number(String key, num fallback) =>
         root ? '($key ?? ${p[key] ?? fallback})' : '${p[key] ?? fallback}';
     final text = root
@@ -320,12 +398,23 @@ class DesignDocument {
     final event = root
         ? '(eventKey ?? ${literal(p['event'] ?? '')})'
         : literal(p['event'] ?? '');
-    final children = n.children.map((c) => dartNode(c)).join(',');
+    final children = n.children
+        .map(
+          (c) => n.type == 'Stack'
+              ? 'Positioned(left: ${c.props['left'] ?? 0}, top: ${c.props['top'] ?? 0}, child: ${dartNode(c)})'
+              : dartNode(c),
+        )
+        .join(',');
     String body;
     switch (n.type) {
       case 'Text':
         body =
-            'Text($text, style: TextStyle(fontSize: ${number('fontSize', 16)}, color: ${color(p['color'], '#20212A', 'foreground')}))';
+            'Text($text, textAlign: TextAlign.${p['textAlign'] ?? 'left'}, style: TextStyle(fontSize: ${number('fontSize', 16)}, fontFamily: ${p['fontFamily'] == null ? 'null' : literal(p['fontFamily'])}, fontWeight: FontWeight.w${p['fontWeight'] ?? 400}, height: ${p['textHeight'] ?? 'null'}, letterSpacing: ${p['letterSpacing'] ?? 0}, color: ${color(p['color'], '#20212A', 'foreground')}))';
+      case 'Artwork':
+        body = 'const SizedBox()';
+      case 'Stack':
+        body =
+            'SizedBox(width: ${number('width', 320)}, height: ${number('height', 240)}, child: Stack(clipBehavior: Clip.none, children: [$children]))';
       case 'Button':
         body =
             'ElevatedButton(onPressed: actions[$event] ?? () {}, style: ElevatedButton.styleFrom(backgroundColor: ${color(p['background'], '#6750A4', 'background')}, foregroundColor: ${color(p['color'], '#FFFFFF', 'foreground')}, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(${number('radius', 12)}))), child: Text($text))';
@@ -342,9 +431,28 @@ class DesignDocument {
         body =
             'Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, spacing: ${number('gap', 12)}, children: [$children])';
     }
+    if (p['png'] != null) {
+      final image =
+          'Image.memory(base64Decode(${literal(p['png'])}), width: ${p['width'] ?? 24}, height: ${p['height'] ?? 24}, fit: BoxFit.fill, filterQuality: FilterQuality.high)';
+      if (n.type == 'Text') {
+        final native = body;
+        body = 'Semantics(label: $text, child: $image)';
+        if (root)
+          body =
+              '(label == null && foreground == null && fontSize == null ? $body : $native)';
+      } else
+        body = image;
+    }
     if (n.type != 'Button' && n.type != 'Spacer')
       body =
           'Container(${root ? "width: width ?? ${p['width'] ?? 'null'}, height: height ?? ${p['height'] ?? 'null'}," : "${p['width'] != null ? "width: ${p['width']}," : ""}${p['height'] != null ? "height: ${p['height']}," : ""}"}padding: EdgeInsets.all(${number('padding', 0)}), decoration: BoxDecoration(color: ${color(p['background'], '#FFFFFF', 'background')}, borderRadius: BorderRadius.circular(${number('radius', 0)})), child: $body)';
+    if (p['clip'] == true)
+      body =
+          'ClipRRect(borderRadius: BorderRadius.circular(${number('radius', 0)}), child: $body)';
+    if (!['Button', 'Input'].contains(n.type) &&
+        (root || (p['event'] as String?)?.isNotEmpty == true))
+      body =
+          'GestureDetector(behavior: HitTestBehavior.opaque, onTap: actions[$event], child: $body)';
     return body;
   }
 }

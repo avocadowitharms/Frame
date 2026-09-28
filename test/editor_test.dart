@@ -230,4 +230,158 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+  test(
+    'Figma positioned import preserves nested offsets, transparency, artwork, font metadata, and image saves',
+    () {
+      final package = jsonDecode(
+        File(
+          'examples/figma-positioned.canvas-package.json',
+        ).readAsStringSync(),
+      );
+      final imported = importFigmaPackage(jsonEncode(package));
+      final screen = imported.screens.single;
+      expect(screen.type, 'Stack');
+      expect(screen.props['width'], 120);
+      expect(screen.props['height'], 120);
+      expect(screen.props['clip'], isTrue);
+      expect(screen.children.first.type, 'Artwork');
+      expect(screen.children.first.props['left'], 30);
+      expect(screen.children.first.props['top'], 25);
+      expect(screen.children[1].props['fontFamily'], 'Hand Drawn');
+      expect(screen.children[1].props['png'], isNotNull);
+      expect(screen.children[2].props.containsKey('background'), isFalse);
+      expect(screen.children[2].children.first.props['left'], 3);
+      final restored = DesignDocument.decode(
+        DesignDocument(imported.screens).encode(),
+      );
+      expect(
+        restored.screens.first.children.first.props['png'],
+        screen.children.first.props['png'],
+      );
+      package['nodes'][0]['children'][0]['png'] = 'not a PNG';
+      expect(
+        () => importFigmaPackage(jsonEncode(package)),
+        throwsFormatException,
+      );
+      package['version'] = 1;
+      expect(
+        () => importFigmaPackage(jsonEncode(package)),
+        throwsFormatException,
+      );
+    },
+  );
+  testWidgets(
+    'exported fixed layout uses original positions and image tap events',
+    (tester) async {
+      var taps = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Align(
+              alignment: Alignment.topLeft,
+              child: DesignFidelity1(actions: {'artTapped': () => taps++}),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final origin = tester.getTopLeft(find.byType(DesignFidelity1));
+      expect(
+        tester.getTopLeft(find.byType(Image).first) - origin,
+        const Offset(30, 25),
+      );
+      expect(
+        tester.getTopLeft(find.byType(Image).at(1)) - origin,
+        const Offset(20, 70),
+      );
+      expect(
+        tester.getTopLeft(find.byType(Image).last) - origin,
+        const Offset(8, 10),
+      );
+      await tester.tap(find.byType(Image).first);
+      await tester.pumpAndSettle();
+      expect(taps, 1);
+      expect(tester.takeException(), isNull);
+    },
+  );
+  testWidgets(
+    'editor imports fixed geometry, drags layers, preserves component positions, and previews image events',
+    (tester) async {
+      tester.view.physicalSize = const Size(1600, 1000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final folder = Directory.systemTemp.createTempSync('frame-positioned-');
+      File(
+        'examples/figma-positioned.canvas-package.json',
+      ).copySync('${folder.path}/workspace.canvas.json');
+      final pickerBefore = FileSelectorPlatform.instance;
+      FileSelectorPlatform.instance = LocalPicker(folder.path);
+      try {
+        await tester.pumpWidget(const FrameApp());
+        await tester.pumpAndSettle();
+        await tester.runAsync(() async {
+          await tester.tap(find.text('Figma import'));
+          await Future<void>.delayed(const Duration(milliseconds: 150));
+        });
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Done'));
+        await tester.pumpAndSettle();
+        expect(find.text('120 px'), findsOneWidget);
+        final rootBox = find.byWidgetPredicate(
+          (w) => w is SizedBox && w.width == 120 && w.height == 120,
+        );
+        final origin = tester.getTopLeft(rootBox);
+        expect(
+          tester.getTopLeft(find.byType(Image).first) - origin,
+          const Offset(30, 25),
+        );
+        await tester.dragFrom(
+          tester.getCenter(find.byType(Image).first),
+          const Offset(40, 30),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          tester.getTopLeft(find.byType(Image).first) - origin,
+          const Offset(70, 55),
+        );
+        await tester.ensureVisible(find.text('Create component'));
+        await tester.tap(find.text('Create component'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Apply'));
+        await tester.pumpAndSettle();
+        expect(
+          tester.getTopLeft(find.byType(Image).first) - origin,
+          const Offset(70, 55),
+        );
+        await tester.tap(find.byTooltip('Undo design change'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byTooltip('Undo design change'));
+        await tester.pumpAndSettle();
+        expect(
+          tester.getTopLeft(find.byType(Image).first) - origin,
+          const Offset(30, 25),
+        );
+        await tester.tapAt(tester.getCenter(find.byType(Image).first));
+        await tester.pumpAndSettle();
+        final eventField = find.widgetWithText(
+          TextFormField,
+          'onTap · action key',
+        );
+        await tester.ensureVisible(eventField);
+        await tester.enterText(eventField, 'circleTapped');
+        await tester.testTextInput.receiveAction(TextInputAction.done);
+        await tester.pumpAndSettle();
+        await tester.tap(find.byType(Switch));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byType(Image).first);
+        await tester.pumpAndSettle();
+        expect(find.textContaining('circleTapped fired'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      } finally {
+        FileSelectorPlatform.instance = pickerBefore;
+        folder.deleteSync(recursive: true);
+      }
+    },
+  );
 }

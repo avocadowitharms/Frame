@@ -1,5 +1,6 @@
 import 'dart:io';
 import '../lib/document.dart';
+import '../lib/figma_import.dart';
 
 void main() {
   final doc = DesignDocument.sample();
@@ -26,6 +27,11 @@ void main() {
       ],
     ),
   );
+  final imported = importFigmaPackage(
+    File('examples/figma-positioned.canvas-package.json').readAsStringSync(),
+  );
+  imported.screens.first.children.first.props['event'] = 'artTapped';
+  doc.screens.addAll(imported.screens);
   File('test/generated_fixture.dart').writeAsStringSync(doc.exportDart());
   File('examples/settings.canvas.json').writeAsStringSync(doc.encode());
 }

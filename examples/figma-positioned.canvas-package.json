@@ -1,0 +1,80 @@
+{
+  "format": "canvas-figma",
+  "version": 2,
+  "nodes": [
+    {
+      "id": "root",
+      "name": "Fidelity",
+      "type": "FRAME",
+      "x": 0,
+      "y": 0,
+      "width": 120,
+      "height": 120,
+      "cornerRadius": 12,
+      "clipsContent": true,
+      "fills": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1
+          }
+        }
+      ],
+      "children": [
+        {
+          "id": "art",
+          "name": "Circle",
+          "type": "ELLIPSE",
+          "x": 30,
+          "y": 25,
+          "width": 20,
+          "height": 20,
+          "png": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aL1EAAAAASUVORK5CYII=",
+          "rasterized": true
+        },
+        {
+          "id": "text",
+          "name": "Label",
+          "type": "TEXT",
+          "x": 20,
+          "y": 70,
+          "width": 60,
+          "height": 20,
+          "characters": "Hand drawn label",
+          "fontSize": 16,
+          "fontName": {
+            "family": "Hand Drawn",
+            "style": "Regular"
+          },
+          "fontWeight": 400,
+          "png": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aL1EAAAAASUVORK5CYII=",
+          "rasterized": true
+        },
+        {
+          "id": "group",
+          "name": "Transparent group",
+          "type": "GROUP",
+          "x": 5,
+          "y": 5,
+          "width": 20,
+          "height": 20,
+          "children": [
+            {
+              "id": "nested",
+              "name": "Circle",
+              "type": "ELLIPSE",
+              "x": 3,
+              "y": 5,
+              "width": 5,
+              "height": 5,
+              "png": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aL1EAAAAASUVORK5CYII=",
+              "rasterized": true
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

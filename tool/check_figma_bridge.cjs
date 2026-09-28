@@ -1,0 +1,36 @@
+// One runnable regression check: exercise the actual plugin without a Figma host.
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aL1EAAAAASUVORK5CYII=';
+const bounds = (x,y,width,height) => ({x,y,width,height});
+const messages = [];
+const text = { id:'text', name:'Label', type:'TEXT', characters:'Hand drawn label', fontName:{family:'Hand Drawn',style:'Regular'},fontSize:16,fontWeight:400, absoluteBoundingBox:bounds(120,270,60,20), exportAsync:async () => Buffer.from(png,'base64') };
+const art = { id:'art', name:'Circle', type:'ELLIPSE', absoluteBoundingBox:bounds(130,225,20,20),absoluteRenderBounds:bounds(130,225,20,20),exportAsync:async () => Buffer.from(png,'base64') };
+const group = { id:'group',name:'Transparent group',type:'GROUP',absoluteBoundingBox:bounds(105,205,20,20),children:[{...art,id:'nested',absoluteBoundingBox:bounds(108,210,5,5),absoluteRenderBounds:bounds(108,210,5,5)}] };
+const root = { id:'root',name:'Fidelity',type:'FRAME',absoluteBoundingBox:bounds(100,200,120,120),cornerRadius:12,clipsContent:true,fills:[{type:'SOLID',color:{r:1,g:1,b:1}}],children:[art,text,group] };
+const figma = {showUI(){},base64Encode:b=>Buffer.from(b).toString('base64'),currentPage:{selection:[root]},ui:{postMessage:m=>messages.push(m)}};
+vm.runInNewContext(fs.readFileSync('figma_bridge/code.js','utf8'),{figma,__html__:''});
+(async () => {
+  await figma.ui.onmessage({type:'export',preserveText:true});
+  const data = messages.find(m=>m.data); assert.ok(data,JSON.stringify(messages));
+  const packageData = JSON.parse(data.data);
+  assert.equal(packageData.version,2);
+  const importedRoot = packageData.nodes[0];
+  assert.equal(importedRoot.width,120); assert.equal(importedRoot.clipsContent,true);
+  assert.equal(importedRoot.children[0].x,30); assert.equal(importedRoot.children[0].y,25);
+  assert.equal(importedRoot.children[0].png,png);
+  assert.equal(importedRoot.children[1].fontName.family,'Hand Drawn'); assert.equal(importedRoot.children[1].png,png);
+  assert.equal(importedRoot.children[2].children[0].x,3); assert.equal(importedRoot.children[2].children[0].y,5);
+  assert.equal(importedRoot.children[2].fills,undefined);
+  fs.writeFileSync('examples/figma-positioned.canvas-package.json',JSON.stringify(packageData,null,2));
+  messages.length=0;
+  await figma.ui.onmessage({type:'export',preserveText:false});
+  const nativeText = JSON.parse(messages.find(m=>m.data).data).nodes[0].children[1];
+  assert.equal(nativeText.png,undefined); assert.equal(nativeText.characters,'Hand drawn label');
+  root.effects=[{type:'DROP_SHADOW',visible:true}]; root.exportAsync=art.exportAsync;
+  messages.length=0; await figma.ui.onmessage({type:'export'});
+  const flattened = JSON.parse(messages.find(m=>m.data).data).nodes[0];
+  assert.equal(flattened.png,png); assert.equal(flattened.children,undefined);
+  console.log('Bridge positions, nested bounds, artwork, font snapshots, native text, and complex-group fallback passed.');
+})().catch(error=>{console.error(error);process.exitCode=1});

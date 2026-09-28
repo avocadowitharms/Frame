@@ -48,6 +48,9 @@ There is no automatic recovery after a crash in this MVP.
 6. Use the width selector to check 320, 390, 600, or 900 pixel layouts.
 
 Column stacks children vertically. Row places children horizontally.
+Stack preserves overlapping layers at fixed X/Y positions. Drag its children
+on the canvas to move them, or edit X position and Y position in the inspector.
+One canvas drag is one undo step. A new Stack starts at 320 by 240 pixels.
 Container provides background, padding, corners, and a vertical child layout.
 Text, Button, Input, and Spacer are leaf widgets. Spacer is a fixed-size
 empty box, not Flutter's flex-based Spacer widget.
@@ -68,7 +71,7 @@ builds do not show Flutter's debug overflow stripes.
 
 ## 4. Style elements
 
-Colors accept #RRGGBB or a shared token reference such as @accent.
+Colors accept #RRGGBB, #AARRGGBB (with alpha), or a token such as @accent.
 Built-in color tokens are @accent, @ink, and @surface. Change a token in
 the inspector and press Enter; every reference updates immediately.
 Add token creates another named shared color. Token names use letters,
@@ -164,32 +167,68 @@ Dart import and round-trip source editing are not available.
 ## 8. Bring in a Figma design
 
 The optional bridge is a small Figma development plugin in figma_bridge/.
+The separate Frame Bridge download contains manifest.json, code.js, ui.html,
+and a setup README. Extract all its files into one folder, for example
+C:\Users\YOUR_NAME\Documents\FrameBridge. Do not move only the manifest.
+Source checkout users find the same files under their Frame folder's
+figma_bridge subfolder. On this development machine that is:
+C:\Users\Ava\Documents\GitHub\frame\figma_bridge\manifest.json
 Figma itself requires its normal Figma access; Frame never asks
 you to sign in, receives credentials, or connects to your Figma account.
 
-1. Open Figma desktop and its Plugins > Development tools.
-2. Create a local development plugin in Figma and copy its generated ID into
-   figma_bridge/manifest.json, replacing the placeholder id. Then import
-   that manifest. This is Figma's plugin registration; it creates no editor
-   account or connection to Frame.
-3. Select one or more screen frames. Use Auto Layout whenever possible.
-4. Run Frame Bridge and choose Export selection.
-5. Save the resulting figma.canvas-package.json file.
-6. In this editor choose Figma import and select that package with the native
+1. Open Figma desktop and choose Plugins > Development > New plugin.
+2. Name it Frame Bridge. Choose Figma design, then Custom UI.
+3. Save Figma's generated template in a DIFFERENT folder, for example
+   Documents\FrameBridgeRegistration. Do not overwrite the bridge download.
+4. In that registration folder, open manifest.json in Notepad. Copy only
+   the quoted value beside "id".
+5. Open manifest.json in the extracted FrameBridge folder (or the source
+   checkout's figma_bridge folder). Replace its id value with the copied
+   value and save. Keep main set to code.js and ui set to ui.html.
+6. In Figma choose Plugins > Development > Import plugin from manifest.
+   Select the BRIDGE folder's manifest, not the registration template's file.
+7. Select one or more screen frames, then run Frame Bridge.
+8. Leave Preserve text appearance as images checked for matching custom-font
+   text. Turn it off for native Flutter Text widgets, which need matching
+   fonts installed in Frame and bundled with your application.
+9. Choose Export selection.
+10. Save the resulting figma.canvas-package.json file.
+11. In this editor choose Figma import and select that package with the native
    picker. Imported screens are added to your existing project.
-7. Read the conversion report. Adjust layout and styling in the inspector.
-8. Create editor components from imported subtrees, then assign event keys.
+12. Read the conversion report. Adjust positions and dimensions in the inspector.
+13. Create editor components from imported subtrees, then assign event keys.
 
 An example package is in examples/figma.canvas-package.json, so you can try
 import without using Figma. Its matching target preview is a settings card.
 
-The importer supports text, solid fills, corner radius, basic spacing,
-and horizontal/vertical Auto Layout. Free-positioned children become a
-vertical layout. Unequal padding becomes the largest edge. Components and
-instances become editable layouts; their original links are not retained.
-Fonts, strokes, effects, vector paths, images, mixed text styling, design
-variable links, variants, resizing rules, and prototype behavior are not
-preserved. The conversion report identifies simplifications it detects.
+Version 2 packages preserve original dimensions, positions, layer order,
+transparent groups, frame clipping, and rounded corners. Frame imports
+containers as sized Stack widgets; Auto Layout is captured at its current
+positions too, rather than guessing responsive Flutter constraints.
+Artwork, vectors, image fills, and complex effects are embedded as PNGs.
+Complex groups (including cards with shadows) become a single image.
+They are movable, resizable, reusable layers; their vector paths / child
+elements cannot be edited inside Frame. Attach onTap action keys to images
+to make them interactive in the exported Dart.
+
+Preserved text is an image-backed Text layer with its original content kept
+for accessibility. Editing its text, font size, font family, or text color
+removes the snapshot and switches to native Text. Use native Flutter text
+does the same explicitly. Its appearance can then differ if the font is
+unavailable. Images are embedded in project JSON and exported Dart, so you
+do not have to copy assets separately. Large screens can increase file sizes.
+Individual PNGs are limited to 16 megapixels; projects and imports to 32 MB.
+
+Layouts have fixed positions and do not automatically reflow when resized.
+Component links, variable bindings, named variants, resizing rules, and
+prototype behavior are not retained. The report states which layers use
+image fallbacks. Exported Dart uses Stack/Positioned and Image.memory for
+those layers, rather than claiming they are editable Flutter vectors.
+
+Old version 1 free-positioned packages lack coordinates and artwork; Frame
+rejects them with a re-export instruction. Update the bridge, close its old
+plugin window, run it again, and export a new package. Existing project files
+still open, but missing details cannot be recovered from an old import.
 Original Figma node IDs are kept as source metadata. Reimport adds new
 screens; there is no merging or bidirectional synchronization in the MVP.
 
@@ -207,16 +246,22 @@ are deferred; use the Figma import picker in this version.
 - Opening/importing fails: read the status bar; the current project stays intact.
 - Input is not editable: enable Interact.
 - Nothing needs to log in: there is no editor authentication or cloud storage.
+- Figma says a TypeScript template needs compiling: you ran the generated
+  registration template. Import the bridge folder's manifest and run that
+  plugin instead. Frame Bridge is plain JavaScript and needs no compilation.
 
 This MVP covers local layout editing, root component overrides, color tokens,
 event keys, project files, Dart export, and a limited one-way Figma bridge.
-It does not include arbitrary Dart execution, plugin widgets, assets, flex
-layout editing, Stack/free positioning, animations, collaboration, named
-component variants, custom fonts, or automatic responsive breakpoints.
+It does not include arbitrary Dart execution, plugin widgets, a vector-path
+editor, flex layout editing, animations, collaboration, named component
+variants, font-file embedding, or automatic responsive breakpoints.
 
 ## 10. Developer verification
 
 Run `flutter test` for the model, importer, editor, and exported-widget checks.
-Run `dart run tool/export_fixture.dart` before tests after changing generation.
+Run `node tool/check_figma_bridge.cjs`, then `dart run tool/export_fixture.dart`
+before tests after changing generation or import. The Node check runs the
+actual bridge with a small mock Figma host; live Figma export is a separate
+manual verification step.
 Build a Windows bundle with `flutter build windows --release`.
 Do not run flutter analyze; this project follows the supplied instruction.

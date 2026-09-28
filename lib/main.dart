@@ -1,7 +1,9 @@
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/gestures.dart' show DragStartBehavior;
 import 'dart:ui' show AppExitResponse;
 import 'document.dart';
 import 'figma_import.dart';
@@ -59,6 +61,8 @@ class _EditorState extends State<Editor> {
   double previewWidth = 390, zoom = 1;
   String status = 'Local workspace · no account required';
   final undo = <String>[], redo = <String>[];
+  final images = <String, Uint8List>{};
+  Offset? dragGlobal;
   DesignNode get root => editingComponent != null
       ? doc.components[editingComponent]!
       : doc.screens[screen];
@@ -71,7 +75,10 @@ class _EditorState extends State<Editor> {
   void mutate(VoidCallback action) {
     setState(() {
       undo.add(doc.encode());
-      if (undo.length > 80) undo.removeAt(0);
+      while (undo.length > 80 ||
+          undo.fold<int>(0, (sum, s) => sum + s.length) > 64000000) {
+        undo.removeAt(0);
+      }
       redo.clear();
       action();
       dirty = true;
@@ -85,6 +92,8 @@ class _EditorState extends State<Editor> {
       to.add(doc.encode());
       doc = DesignDocument.decode(from.removeLast());
       screen = screen.clamp(0, doc.screens.length - 1);
+      previewWidth =
+          (doc.screens[screen].props['width'] as num?)?.toDouble() ?? 390;
       editingComponent = null;
       selected = null;
       dirty = true;
@@ -92,7 +101,7 @@ class _EditorState extends State<Editor> {
   }
 
   Color color(dynamic value, String fallback) =>
-      Color(int.parse('FF${doc.hex(value, fallback).substring(1)}', radix: 16));
+      Color(int.parse(argbHex(doc.hex(value, fallback)), radix: 16));
   Widget button(String title, IconData icon, VoidCallback? action) =>
       TextButton.icon(
         onPressed: action,
@@ -167,6 +176,10 @@ class _EditorState extends State<Editor> {
       if (path == null) return;
       // Write a sibling first so a failed write never destroys the previous project.
       final snapshot = doc.encode();
+      if (snapshot.length > maxDocumentBytes)
+        throw const FormatException(
+          'Project exceeds 32 MB. Remove large artwork or split screens into separate projects.',
+        );
       final temp = File('$path.pending');
       await temp.writeAsString(snapshot, flush: true);
       await temp.rename(path);
@@ -192,8 +205,11 @@ class _EditorState extends State<Editor> {
       final loaded = DesignDocument.decode(await file.readAsString());
       setState(() {
         doc = loaded;
+        images.clear();
         filePath = file.path;
         screen = 0;
+        previewWidth =
+            (doc.screens.first.props['width'] as num?)?.toDouble() ?? 390;
         selected = null;
         editingComponent = null;
         undo.clear();
@@ -233,9 +249,18 @@ class _EditorState extends State<Editor> {
       );
       if (file == null) return;
       final imported = importFigmaPackage(await file.readAsString());
+      DesignDocument.decode(
+        DesignDocument(
+          [...doc.screens, ...imported.screens],
+          components: doc.components,
+          tokens: doc.tokens,
+        ).encode(),
+      );
       mutate(() {
         doc.screens.addAll(imported.screens);
         screen = doc.screens.length - imported.screens.length;
+        previewWidth =
+            (imported.screens.first.props['width'] as num?)?.toDouble() ?? 390;
         editingComponent = null;
         selected = null;
       });
@@ -269,7 +294,7 @@ class _EditorState extends State<Editor> {
 
   void insert(String payload, DesignNode target) {
     if (!isLayout(target.type)) {
-      message('Drop into a Column, Row, or Container.');
+      message('Drop into a Column, Row, Container, or Stack.');
       return;
     }
     if (payload.startsWith('move:')) {
@@ -311,6 +336,8 @@ class _EditorState extends State<Editor> {
                   ? {'text': 'Enter text'}
                   : payload == 'Container'
                   ? {'padding': 16, 'background': '@surface', 'radius': 12}
+                  : payload == 'Stack'
+                  ? {'width': 320, 'height': 240}
                   : {},
             );
       mutate(() {
@@ -346,7 +373,11 @@ class _EditorState extends State<Editor> {
       final instance = DesignNode(
         'Instance',
         name: name,
-        props: {'component': name},
+        props: {
+          'component': name,
+          if (n.props.containsKey('left')) 'left': n.props['left'],
+          if (n.props.containsKey('top')) 'top': n.props['top'],
+        },
       );
       parent.children[parent.children.indexOf(n)] = instance;
       selected = instance.id;
@@ -435,6 +466,8 @@ class _EditorState extends State<Editor> {
             title: Text(doc.screens[i].name),
             onTap: () => setState(() {
               screen = i;
+              previewWidth =
+                  (doc.screens[i].props['width'] as num?)?.toDouble() ?? 390;
               editingComponent = null;
               selected = null;
             }),
@@ -459,7 +492,7 @@ class _EditorState extends State<Editor> {
             });
         }),
         heading('WIDGETS · DRAG OR CLICK'),
-        for (final kind in kinds)
+        for (final kind in kinds.where((kind) => kind != 'Artwork'))
           dragItem(
             kind,
             kind,
@@ -531,12 +564,15 @@ class _EditorState extends State<Editor> {
             if (v.isNotEmpty &&
                 (value == null ||
                     !value.isFinite ||
-                    value < 0 ||
+                    value < (['left', 'top'].contains(key) ? -10000 : 0) ||
                     value > 10000)) {
               message('Use a number from 0 to 10000.');
               return;
             }
             mutate(() {
+              if (resolved.type == 'Text' &&
+                  ['fontSize', 'textHeight', 'letterSpacing'].contains(key))
+                n.props.remove('png');
               if (v.isEmpty)
                 n.props.remove(key);
               else
@@ -545,13 +581,16 @@ class _EditorState extends State<Editor> {
           } else {
             if (['color', 'background'].contains(key) &&
                 v.isNotEmpty &&
-                !(RegExp(r'^#[0-9A-Fa-f]{6}$').hasMatch(v) ||
+                !(validColor(v) ||
                     v.startsWith('@') &&
                         doc.tokens.containsKey(v.substring(1)))) {
               message('Use #RRGGBB or an existing @token.');
               return;
             }
             mutate(() {
+              if (resolved.type == 'Text' &&
+                  ['text', 'color', 'fontFamily'].contains(key))
+                n.props.remove('png');
               if (v.isEmpty)
                 n.props.remove(key);
               else
@@ -605,8 +644,33 @@ class _EditorState extends State<Editor> {
                 type == 'Input' ? 'Placeholder' : 'Label / text',
                 fallback: type,
               ),
+            if (doc.resolve(n).props['png'] != null) ...[
+              Text(
+                type == 'Text'
+                    ? 'Figma text appearance is preserved as an image. Editing text, size, or color switches to native text; the font may differ.'
+                    : 'Figma artwork image. Move, resize, reuse, or attach an event. Edit vector paths and colors in Figma.',
+                style: const TextStyle(color: Colors.grey, fontSize: 12),
+              ),
+              if (type == 'Text' && n.type != 'Instance')
+                button(
+                  'Use native Flutter text',
+                  Icons.text_fields,
+                  () => mutate(() => n.props.remove('png')),
+                ),
+              const SizedBox(height: 12),
+            ],
+            if (doc.parent(n.id)?.type == 'Stack') ...[
+              field(n, 'left', 'X position', numeric: true, fallback: '0'),
+              field(n, 'top', 'Y position', numeric: true, fallback: '0'),
+            ],
             if (type == 'Text')
               field(n, 'fontSize', 'Font size', numeric: true, fallback: '16'),
+            if (type == 'Text' && n.type != 'Instance')
+              field(
+                n,
+                'fontFamily',
+                'Font family · must be installed / bundled',
+              ),
             if (['Text', 'Button'].contains(type))
               field(
                 n,
@@ -614,14 +678,14 @@ class _EditorState extends State<Editor> {
                 'Text color · #hex or @token',
                 fallback: type == 'Button' ? '#FFFFFF' : '#20212A',
               ),
-            if (type != 'Spacer')
+            if (!['Spacer', 'Artwork'].contains(type))
               field(
                 n,
                 'background',
                 'Background · #hex or @token',
                 fallback: type == 'Button' ? '@accent' : '',
               ),
-            if (type != 'Spacer')
+            if (!['Spacer', 'Artwork'].contains(type))
               field(
                 n,
                 'radius',
@@ -638,9 +702,15 @@ class _EditorState extends State<Editor> {
               field(n, 'width', 'Width', numeric: true, fallback: '24'),
               field(n, 'height', 'Height', numeric: true, fallback: '24'),
             ],
-            if (isLayout(type))
+            if (isLayout(type) && type != 'Stack')
               field(n, 'gap', 'Child spacing', numeric: true, fallback: '12'),
-            if (['Button', 'Input'].contains(type)) ...[
+            if ([
+              'Button',
+              'Input',
+              'Artwork',
+              'Text',
+              'Stack',
+            ].contains(type)) ...[
               const Divider(),
               const Text(
                 'EVENT ASSIGNMENT',
@@ -650,9 +720,11 @@ class _EditorState extends State<Editor> {
               field(
                 n,
                 'event',
-                type == 'Button'
+                type == 'Input'
+                    ? 'onChanged · string handler key'
+                    : type == 'Button'
                     ? 'onPressed · action key'
-                    : 'onChanged · string handler key',
+                    : 'onTap · action key',
               ),
               const Text(
                 'Export receives typed callback maps. Interact mode reports events; it does not execute arbitrary Dart.',
@@ -778,9 +850,22 @@ class _EditorState extends State<Editor> {
       case 'Text':
         body = Text(
           p['text'] ?? 'Text',
+          textAlign:
+              {
+                'left': TextAlign.left,
+                'center': TextAlign.center,
+                'right': TextAlign.right,
+                'justify': TextAlign.justify,
+              }[p['textAlign']] ??
+              TextAlign.left,
           style: TextStyle(
             fontSize: (p['fontSize'] as num?)?.toDouble() ?? 16,
             color: color(p['color'], '#20212A'),
+            fontFamily: p['fontFamily'],
+            fontWeight: FontWeight
+                .values[((p['fontWeight'] as num?)?.toInt() ?? 400) ~/ 100 - 1],
+            height: (p['textHeight'] as num?)?.toDouble(),
+            letterSpacing: (p['letterSpacing'] as num?)?.toDouble(),
           ),
         );
       case 'Button':
@@ -818,6 +903,24 @@ class _EditorState extends State<Editor> {
           spacing: (p['gap'] as num?)?.toDouble() ?? 12,
           children: children,
         );
+      case 'Artwork':
+        body = const SizedBox();
+      case 'Stack':
+        body = SizedBox(
+          width: (p['width'] as num?)?.toDouble() ?? 320,
+          height: (p['height'] as num?)?.toDouble() ?? 240,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              for (var i = 0; i < n.children.length; i++)
+                Positioned(
+                  left: (n.children[i].props['left'] as num?)?.toDouble() ?? 0,
+                  top: (n.children[i].props['top'] as num?)?.toDouble() ?? 0,
+                  child: children[i],
+                ),
+            ],
+          ),
+        );
       default:
         body = Column(
           mainAxisSize: MainAxisSize.min,
@@ -825,6 +928,17 @@ class _EditorState extends State<Editor> {
           spacing: (p['gap'] as num?)?.toDouble() ?? 12,
           children: children,
         );
+    }
+    if (p['png'] != null) {
+      final bytes = images.putIfAbsent(p['png'], () => pngBytes(p['png']));
+      body = Image.memory(
+        bytes,
+        width: (p['width'] as num?)?.toDouble() ?? 24,
+        height: (p['height'] as num?)?.toDouble() ?? 24,
+        fit: BoxFit.fill,
+        filterQuality: FilterQuality.high,
+      );
+      if (n.type == 'Text') body = Semantics(label: p['text'], child: body);
     }
     if (!['Button', 'Spacer'].contains(n.type))
       body = Container(
@@ -841,10 +955,54 @@ class _EditorState extends State<Editor> {
         ),
         child: body,
       );
+    if (p['clip'] == true)
+      body = ClipRRect(
+        borderRadius: BorderRadius.circular(
+          (p['radius'] as num?)?.toDouble() ?? 0,
+        ),
+        child: body,
+      );
+    if (interact &&
+        !['Button', 'Input'].contains(n.type) &&
+        (p['event'] as String?)?.isNotEmpty == true)
+      body = GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => event(),
+        child: body,
+      );
     if (interact || !selectable) return body;
     body = GestureDetector(
+      dragStartBehavior: DragStartBehavior.down,
       behavior: HitTestBehavior.opaque,
       onTap: () => setState(() => selected = original.id),
+      onPanStart: doc.parent(original.id)?.type != 'Stack'
+          ? null
+          : (d) {
+              dragGlobal = d.globalPosition;
+              mutate(() => selected = original.id);
+            },
+      onPanUpdate: doc.parent(original.id)?.type != 'Stack'
+          ? null
+          : (d) {
+              final delta =
+                  (d.globalPosition - (dragGlobal ?? d.globalPosition)) / zoom;
+              dragGlobal = d.globalPosition;
+              setState(() {
+                original.props['left'] =
+                    ((original.props['left'] as num? ?? 0) + delta.dx).clamp(
+                      -10000,
+                      10000,
+                    );
+                original.props['top'] =
+                    ((original.props['top'] as num? ?? 0) + delta.dy).clamp(
+                      -10000,
+                      10000,
+                    );
+              });
+            },
+      onPanEnd: doc.parent(original.id)?.type != 'Stack'
+          ? null
+          : (_) => dragGlobal = null,
       child: AbsorbPointer(
         absorbing: !isLayout(n.type) || original.type == 'Instance',
         child: body,
@@ -872,7 +1030,10 @@ class _EditorState extends State<Editor> {
                   color: const Color(0x226750A4),
                 )
               : null,
-          constraints: const BoxConstraints(minHeight: 24, minWidth: 24),
+          constraints: BoxConstraints(
+            minHeight: p['height'] == null ? 24 : 0,
+            minWidth: p['width'] == null ? 24 : 0,
+          ),
           child: content,
         ),
       );
@@ -908,14 +1069,18 @@ class _EditorState extends State<Editor> {
                 ),
               DropdownButton<double>(
                 value: previewWidth,
-                items: [320.0, 390.0, 600.0, 900.0]
-                    .map(
-                      (w) => DropdownMenuItem(
-                        value: w,
-                        child: Text('${w.toInt()} px'),
-                      ),
-                    )
-                    .toList(),
+                items:
+                    {
+                          ...[320.0, 390.0, 600.0, 900.0],
+                          previewWidth,
+                        }
+                        .map(
+                          (w) => DropdownMenuItem(
+                            value: w,
+                            child: Text('${w.toInt()} px'),
+                          ),
+                        )
+                        .toList(),
                 onChanged: (w) => setState(() => previewWidth = w!),
               ),
               const SizedBox(width: 12),
@@ -959,10 +1124,12 @@ class _EditorState extends State<Editor> {
                         alignment: Alignment.topLeft,
                         child: Container(
                           width: previewWidth,
-                          constraints: const BoxConstraints(minHeight: 700),
+                          constraints: BoxConstraints(
+                            minHeight: root.props['height'] == null ? 700 : 0,
+                          ),
                           decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(16),
+                            color: root.props.containsKey('sourceId') ? Colors.transparent : Colors.white,
+                            borderRadius: BorderRadius.circular((root.props['radius'] as num?)?.toDouble() ?? 16),
                             boxShadow: const [
                               BoxShadow(
                                 color: Color(0x15000000),
